@@ -1,6 +1,8 @@
 """Philips Air Purifier & Humidifier"""
 import voluptuous as vol
-from . import airctrl as air
+
+# from . import airctrl as air
+import pyairctrl.airctrl as air
 import homeassistant.helpers.config_validation as cv
 from homeassistant.components.fan import FanEntity, PLATFORM_SCHEMA
 
@@ -34,8 +36,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 
 ### Setup Platform ###
-
-
 def setup_platform(hass, config, add_devices, discovery_info=None):
     add_devices([PhilipsAirPurifierFan(hass, config)])
 
@@ -68,43 +68,25 @@ class PhilipsAirPurifierFan(FanEntity):
         self._child_lock = None
 
         if self._protocol == "1":
-            self._client = air.AirClient(self._host)
+            self._client = air.HTTPAirCli(self._host)
             self._client.load_key()
-        else:
-            self._client = air.AirClient2(self._host)
+        elif self._protocol == "2":
+            self._client = air.PlainCoAPAirCli(self._host)
+        elif self._protocol == "3":
+            self._client = air.CoAPAirClient(self._host)
 
         self.update()
 
     ### Update Fan attributes ###
-
-    def _is_protocol_1(self):
-        return self._protocol == "1"
-
     def _get_status(self):
-        if self._is_protocol_1():
+        if self._protocol == "1":
             url = "http://{}/di/v1/products/1/air".format(self._host)
-            status = self._client.get(url)
+            status = self._client.get_status(url)
         else:
-            status = self._client.get()
+            status = self._client.get_status()
         return status
 
-    def _get_filter(self):
-        if self._is_protocol_1():
-            url = "http://{}/di/v1/products/1/fltsts".format(self._host)
-            filters = self._client.get(url)
-        else:
-            filters = {}
-            filters = self._client.get()
-        return filters
-
     def update(self):
-        filters = self._get_filter()
-        self._pre_filter = filters["fltsts0"]
-        if "wicksts" in filters:
-            self._wick_filter = filters["wicksts"]
-        self._carbon_filter = filters["fltsts2"]
-        self._hepa_filter = filters["fltsts1"]
-
         status = self._get_status()
         if "pwr" in status:
             if status["pwr"] == "1":
@@ -152,7 +134,7 @@ class PhilipsAirPurifierFan(FanEntity):
             self._light_brightness = status["aqil"]
         if "ddp" in status:
             ddp = status["ddp"]
-            if self._is_protocol_1():
+            if self._protocol == "1":
                 ddp_str = {"0": "PM2.5", "1": "IAI"}
             else:
                 ddp_str = {"0": "IAI", "1": "PM2.5", "3": "Humidity"}
@@ -161,12 +143,24 @@ class PhilipsAirPurifierFan(FanEntity):
             self._water_level = status["wl"]
         if "cl" in status:
             self._child_lock = status["cl"]
+        if "fltsts0" in status:
+            self._pre_filter = status["fltsts0"]
+        if "fltsts1" in status:
+            self._hepa_filter = status["fltsts1"]
+        if "fltsts2" in status:
+            self._carbon_filter = status["fltsts2"]
+        if "wicksts" in status:
+            self._wick_filter = status["wicksts"]
 
     ### Properties ###
 
     @property
     def state(self):
         return self._state
+
+    @property
+    def supported_features(self):
+        return 1
 
     @property
     def name(self):
@@ -196,23 +190,29 @@ class PhilipsAirPurifierFan(FanEntity):
         values = {}
         values["pwr"] = "0"
         self._client.set_values(values)
+        self.update()
 
     def set_speed(self, speed: str):
         values = {}
         if speed == "Turbo":
             values["om"] = "t"
+            values["mode"] = "M"
         elif speed == "Speed 1":
+            values["mode"] = "M"
             values["om"] = "1"
         elif speed == "Speed 2":
             values["om"] = "2"
+            values["mode"] = "M"
         elif speed == "Speed 3":
             values["om"] = "3"
+            values["mode"] = "M"
         elif speed == "Auto Mode":
             values["mode"] = "P"
         elif speed == "Allergen Mode":
             values["mode"] = "A"
         elif speed == "Sleep Mode":
-            values["mode"] = "S"
+            values["om"] = "s"
+            values["mode"] = "M"
         self._client.set_values(values)
 
     @property
