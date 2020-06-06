@@ -1,4 +1,4 @@
 {
-    "name": "Philips AirPurifier (with CoAP)",
+    "name": "Philips AirPurifier (with encrypted CoAP)",
     "render_readme": "true"
 }
